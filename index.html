@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>MUSCLE LAB — vrai 3D</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#071521;color:#eef8fc;font-family:Arial,sans-serif}
+header{padding:16px 18px;background:#0d2232;border-bottom:1px solid #244457}
+.logo{font-size:25px;font-weight:900;letter-spacing:3px}.logo span{color:#59d9e8}
+header small{display:block;color:#a9c2ce;margin-top:5px}
+main{max-width:1050px;margin:auto;padding:14px}
+h1{font-size:22px;margin:8px 0}
+#viewer{height:min(58vh,520px);min-height:330px;background:radial-gradient(ellipse at center,#183b50,#091725 70%);border:1px solid #2b5065;border-radius:18px;overflow:hidden;position:relative}
+canvas{display:block;width:100%;height:100%;touch-action:none}
+.tip{position:absolute;top:10px;left:10px;background:#06131dcc;border:1px solid #416477;border-radius:9px;padding:8px 10px;font-size:12px;color:#d9edf4;pointer-events:none}
+.panel{background:#10283a;border:1px solid #28495d;border-radius:16px;padding:16px;margin-top:12px}
+#name{color:#65dce9;font-size:19px;font-weight:800}#desc{line-height:1.55;color:#d5e5ec;font-size:14px}#darija{color:#ffdda0;border-left:3px solid #ffca70;padding:8px 11px;background:#1a3446;border-radius:0 9px 9px 0;font-size:14px}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin-top:13px}
+button{border:1px solid #456b80;background:#17374c;color:#f2f9fc;padding:10px 13px;border-radius:11px;font-weight:700}
+button.primary{background:#58d8e7;color:#06202a;border-color:#58d8e7}button:disabled{opacity:.35}
+#steps{display:flex;gap:6px;overflow-x:auto;padding:10px 0 2px}
+.step{white-space:nowrap;font-size:12px;padding:8px 10px}.step.active{background:#ffca70;color:#15212a;border-color:#ffca70}
+.note{font-size:11px;color:#7895a5;text-align:center;padding:12px}
+</style>
+</head>
+<body>
+<header><div class="logo">MUSCLE <span>LAB</span></div><small>Exploration anatomique interactive en véritable 3D</small></header>
+<main>
+<h1 id="title">Du muscle au sarcomère</h1>
+<div id="steps"></div>
+<div id="viewer"><div class="tip">☝️ Glisse pour tourner • Pince pour zoomer</div></div>
+<section class="panel">
+<div id="name">1. Muscle strié squelettique</div>
+<p id="desc">Le muscle est organisé en faisceaux musculaires. Chaque faisceau regroupe plusieurs fibres musculaires.</p>
+<div id="darija">العضلة كاملة كتجمع داخلها حزم عضلية، وكل حزمة فيها ألياف عضلية.</div>
+<div class="row"><button id="back">← Retour</button><button class="primary" id="next">Explorer l’intérieur →</button><button id="reset">Réinitialiser la vue</button></div>
+</section>
+<div class="note">Les modèles sont schématiques et les proportions ne sont pas à l’échelle. Connexion Internet nécessaire pour charger le moteur 3D.</div>
+</main>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script>
+const data=[
+{title:"Du muscle au sarcomère",name:"1. Muscle strié squelettique",desc:"Le muscle est organisé en faisceaux musculaires. Chaque faisceau regroupe plusieurs fibres musculaires.",darija:"العضلة كاملة كتجمع داخلها حزم عضلية، وكل حزمة فيها ألياف عضلية.",kind:"muscle"},
+{title:"Le faisceau musculaire",name:"2. Faisceau musculaire",desc:"Un faisceau musculaire est un regroupement de plusieurs fibres musculaires.",darija:"الحزمة العضلية هي مجموعة ديال الألياف العضلية مجموعين مع بعضياتهم.",kind:"bundle"},
+{title:"La fibre musculaire",name:"3. Fibre musculaire (cellule)",desc:"La fibre musculaire est une cellule très allongée. Elle contient plusieurs myofibrilles. On peut y trouver plusieurs noyaux périphériques.",darija:"الليف العضلي خلية طويلة بزاف، وداخلها كاينين myofibrilles، والنوى كتكون قريبة للسطح.",kind:"fiber"},
+{title:"Les myofibrilles",name:"4. Myofibrille",desc:"Les myofibrilles sont des structures contractiles constituées d’une succession de sarcomères.",darija:"كل myofibrille فيها وحدات متكررة سميتها sarcomères.",kind:"myofibril"},
+{title:"Le sarcomère",name:"5. Sarcomère",desc:"Le sarcomère est l’unité contractile comprise entre deux stries Z. Il présente les bandes I et A ainsi que la zone H.",darija:"الساركومير هو الوحدة اللي كتوقع فيها عملية التقلص، وكيكون بين جوج خطوط Z.",kind:"sarcomere"},
+{title:"Les myofilaments",name:"6. Actine et myosine",desc:"Les filaments fins sont principalement constitués d’actine. Les filaments épais sont constitués de myosine. Troponine et tropomyosine participent à la régulation de leur interaction.",darija:"وصلنا للمستوى الدقيق: actine وmyosine، ومعاهم troponine وtropomyosine اللي كيساهمو فتنظيم التقلص.",kind:"molecules"}
+];
+let index=0,scene,camera,renderer,controls,group;
+const viewer=document.getElementById('viewer');
+function mat(color,rough=.55){return new THREE.MeshStandardMaterial({color,roughness:rough,metalness:.05})}
+function mesh(geo,material,x=0,y=0,z=0){let m=new THREE.Mesh(geo,material);m.position.set(x,y,z);group.add(m);return m}
+function cylinderBetween(a,b,r1,r2,material){let d=new THREE.Vector3().subVectors(b,a),g=new THREE.CylinderGeometry(r2,r1,d.length(),20,1);let m=mesh(g,material);m.position.copy(a).add(b).multiplyScalar(.5);m.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),d.normalize());return m}
+function sphere(x,y,z,sx,sy,sz,color){let m=mesh(new THREE.SphereGeometry(1,28,20),mat(color));m.position.set(x,y,z);m.scale.set(sx,sy,sz);return m}
+function clearGroup(){while(group.children.length){let o=group.children.pop();if(o.geometry)o.geometry.dispose();}}
+function build(kind){
+ clearGroup();
+ const red=mat('#c83e64'),light=mat('#f18ba0'),dark=mat('#762443'),gold=mat('#eeb75f'),blue=mat('#58c7d8');
+ if(kind==='muscle'){
+  sphere(0,0,0,2.35,.68,.72,'#b83258');
+  for(let i=-3;i<=3;i++){let y=i*.16; cylinderBetween(new THREE.Vector3(-1.85,y,-.25),new THREE.Vector3(1.85,y,.25),.018,.018,light)}
+  // tapered tendon ends
+  cylinderBetween(new THREE.Vector3(-3.05,0,0),new THREE.Vector3(-2.1,0,0),.08,.38,mat('#e9d6bd'));
+  cylinderBetween(new THREE.Vector3(2.1,0,0),new THREE.Vector3(3.05,0,0),.38,.08,mat('#e9d6bd'));
+ }else if(kind==='bundle'){
+  for(let row=-2;row<=2;row++)for(let col=-2;col<=2;col++){
+   let y=row*.25,z=col*.25;let m=mesh(new THREE.CylinderGeometry(.105,.105,3.6,24),mat((row+col)%2?'#e9798e':'#b9365e'));
+   m.rotation.z=Math.PI/2;m.position.set(0,y,z);
+  }
+ }else if(kind==='fiber'){
+  let body=mesh(new THREE.CylinderGeometry(.58,.58,3.9,48,1,true),mat('#c94d70'));body.rotation.z=Math.PI/2;
+  let cap1=mesh(new THREE.SphereGeometry(.58,32,24),mat('#e9879d'));cap1.position.x=-1.95;
+  let cap2=mesh(new THREE.SphereGeometry(.58,32,24),mat('#e9879d'));cap2.position.x=1.95;
+  for(let i=0;i<5;i++){let m=mesh(new THREE.CylinderGeometry(.07,.07,3.45,18),mat('#7f254b'));m.rotation.z=Math.PI/2;m.position.set(0,-.32+i*.16,0)}
+  for(let i=0;i<7;i++){sphere(-1.4+i*.46,.52,.15,.10,.16,.09,'#493b78')}
+  for(let i=0;i<5;i++)sphere(-1.3+i*.58,-.25,.35,.13,.08,.08,'#e8b65f');
+ }else if(kind==='myofibril'){
+  let base=mesh(new THREE.CylinderGeometry(.42,.42,4.4,36),mat('#bd4265'));base.rotation.z=Math.PI/2;
+  for(let x=-1.8;x<=1.81;x+=.42){let ring=mesh(new THREE.TorusGeometry(.42,.035,8,36),mat('#f2a2b2'));ring.rotation.y=Math.PI/2;ring.position.x=x}
+ }else if(kind==='sarcomere'){
+  // Z discs at ends, actin thin filaments and central myosin thick filament
+  for(let x of [-2,2]){let z=mesh(new THREE.CylinderGeometry(.62,.62,.10,48),mat('#ed91a7'));z.rotation.z=Math.PI/2;z.position.x=x}
+  for(let y=-.36;y<=.361;y+=.24){
+   cylinderBetween(new THREE.Vector3(-1.95,y,0),new THREE.Vector3(-.15,y,0),.035,.035,mat('#e86e91'));
+   cylinderBetween(new THREE.Vector3(1.95,y,0),new THREE.Vector3(.15,y,0),.035,.035,mat('#e86e91'));
+   cylinderBetween(new THREE.Vector3(-.85,y,0),new THREE.Vector3(.85,y,0),.065,.065,gold);
+  }
+  let line=mesh(new THREE.CylinderGeometry(.018,.018,1.25,12),blue);line.position.set(0,0,.02);
+ }else{
+  // actin double chain + myosin thick filament with heads
+  for(let strand of [-.13,.13])for(let i=0;i<13;i++)sphere(-1.55+i*.26,strand+Math.sin(i*.7)*.07,0,.17,.14,.14,'#e66e91');
+  cylinderBetween(new THREE.Vector3(-1.35,-.55,0),new THREE.Vector3(1.35,-.55,0),.12,.12,gold);
+  for(let x=-1.05;x<=1.06;x+=.42){cylinderBetween(new THREE.Vector3(x,-.55,0),new THREE.Vector3(x+.16,-.2,.08),.07,.055,mat('#ffd27d'));sphere(x+.16,-.2,.08,.12,.12,.12,'#ffd27d')}
+ }
+ group.rotation.set(.12,-.25,0);
+}
+function init(){
+ scene=new THREE.Scene();scene.background=new THREE.Color('#0b1d2b');
+ camera=new THREE.PerspectiveCamera(42,viewer.clientWidth/viewer.clientHeight,.1,100);camera.position.set(0,1.2,7.5);
+ renderer=new THREE.WebGLRenderer({antialias:true,alpha:false});renderer.setPixelRatio(Math.min(devicePixelRatio,2));renderer.setSize(viewer.clientWidth,viewer.clientHeight);renderer.outputEncoding=THREE.sRGBEncoding;viewer.appendChild(renderer.domElement);
+ controls=new THREE.OrbitControls(camera,renderer.domElement);controls.enableDamping=true;controls.dampingFactor=.07;controls.minDistance=3;controls.maxDistance=12;
+ scene.add(new THREE.HemisphereLight(0xc9efff,0x382038,1.2));
+ let l=new THREE.DirectionalLight(0xffffff,1.4);l.position.set(4,6,5);scene.add(l);
+ let l2=new THREE.PointLight(0x45cde0,.7);l2.position.set(-4,-2,3);scene.add(l2);
+ group=new THREE.Group();scene.add(group);build(data[0].kind);
+ function animate(){requestAnimationFrame(animate);controls.update();renderer.render(scene,camera)}animate();
+ window.addEventListener('resize',()=>{camera.aspect=viewer.clientWidth/viewer.clientHeight;camera.updateProjectionMatrix();renderer.setSize(viewer.clientWidth,viewer.clientHeight)});
+}
+function renderInfo(){
+ let d=data[index];document.getElementById('title').textContent=d.title;document.getElementById('name').textContent=d.name;document.getElementById('desc').textContent=d.desc;document.getElementById('darija').textContent=d.darija;
+ document.getElementById('back').disabled=index===0;document.getElementById('next').disabled=index===data.length-1;
+ document.getElementById('next').textContent=index===data.length-1?'Dernier niveau atteint':'Explorer l’intérieur →';
+ document.getElementById('steps').innerHTML=data.map((x,i)=>`<button class="step ${i===index?'active':''}" data-i="${i}">${i+1}. ${x.name.split('. ')[1]}</button>`).join('');
+ document.querySelectorAll('.step').forEach(b=>b.onclick=()=>go(+b.dataset.i));
+ if(group){build(d.kind);camera.position.set(0,1.2,7.5);controls.target.set(0,0,0);controls.update()}
+}
+function go(i){index=i;renderInfo()}
+document.getElementById('next').onclick=()=>go(Math.min(index+1,data.length-1));
+document.getElementById('back').onclick=()=>go(Math.max(index-1,0));
+document.getElementById('reset').onclick=()=>{camera.position.set(0,1.2,7.5);controls.target.set(0,0,0);controls.update();group.rotation.set(.12,-.25,0)};
+if(window.THREE && THREE.OrbitControls){init();renderInfo()}else{viewer.innerHTML='<div style="padding:25px;color:#ffd27d">Le moteur 3D ne s’est pas chargé. Vérifie ta connexion Internet puis recharge la page dans Safari.</div>'}
+</script>
+</body></html>
